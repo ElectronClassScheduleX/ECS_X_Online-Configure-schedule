@@ -7,9 +7,9 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('fileInput').addEventListener('change', handleFileUpload);
     
 
-    document.querySelectorAll('.sidebar li').forEach(li => {
+    document.querySelectorAll('.nav-item').forEach(li => {
         li.addEventListener('click', function() {
-            document.querySelectorAll('.sidebar li').forEach(item => item.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
             this.classList.add('active');
             
             const tab = this.getAttribute('data-tab');
@@ -19,6 +19,14 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById(tab).classList.add('active');
         });
     });
+
+    // 为开关添加点击事件监听
+    const weekDisplayToggle = document.getElementById('week_display');
+    if (weekDisplayToggle) {
+        weekDisplayToggle.addEventListener('change', function() {
+            console.log('显示星期开关状态:', this.checked);
+        });
+    }
 
     resetConfig();
 });
@@ -56,7 +64,7 @@ function handleFileUpload(event) {
                 originalConfig = JSON.parse(JSON.stringify(currentConfig));
                 console.log('开始加载UI...');
                 loadConfigToUI();
-                alert('配置文件加载成功！');
+                showNotification('配置文件加载成功！', 'success');
             } else {
                 throw new Error('解析失败:\n' + errors.join('\n'));
             }
@@ -64,10 +72,39 @@ function handleFileUpload(event) {
         } catch (error) {
             console.error('=== 完全失败 ===');
             console.error('错误详情:', error);
-            alert('配置文件解析失败：' + error.message);
+            showNotification('配置文件解析失败：' + error.message, 'error');
         }
     };
     reader.readAsText(file);
+}
+
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.innerHTML = `
+        <div class="notification-content">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span>${message}</span>
+        </div>
+    `;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.opacity = '1';
+        notification.style.transform = 'translateY(0)';
+    }, 10);
+    
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateY(-20px)';
+        setTimeout(() => {
+            notification.remove();
+        }, 300);
+    }, 3000);
 }
 
 // 重置配置 - 完全空白的默认配置
@@ -83,6 +120,7 @@ function resetConfig() {
     };
     originalConfig = JSON.parse(JSON.stringify(currentConfig));
     loadConfigToUI();
+    showNotification('配置已重置', 'warning');
 }
 
 
@@ -140,10 +178,10 @@ function exportConfig() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
-        alert('配置已导出！文件已下载，如果被阻止，请检查浏览器的下载区域。\n配置内容也已复制到剪贴板。');
+        showNotification('配置已导出！文件已下载，如果被阻止，请检查浏览器的下载区域。配置内容也已复制到剪贴板。', 'success');
     } catch (error) {
         console.error('导出失败:', error);
-        alert('导出失败：' + error.message);
+        showNotification('导出失败：' + error.message, 'error');
     }
 }
 
@@ -269,6 +307,7 @@ function saveTimetableToConfig() {
     
     if (!currentConfig.timetable) currentConfig.timetable = {};
     currentConfig.timetable[day] = timetable;
+    showNotification('时间表已保存', 'success');
 }
 
 function deleteTimetableDay() {
@@ -281,7 +320,7 @@ function deleteTimetableDay() {
         }
         loadTimetableTypes();
         loadTimetableDay();
-        alert('删除成功！');
+        showNotification('删除成功！', 'success');
     }
 }
 
@@ -297,6 +336,7 @@ function loadDailyClasses() {
     // 添加新天按钮
     const addButton = document.createElement('button');
     addButton.textContent = '添加新天';
+    addButton.className = 'btn btn-primary btn-sm';
     addButton.onclick = addNewDay;
     container.appendChild(addButton);
 }
@@ -333,7 +373,15 @@ function addDailyClassCard(day, index) {
     card.className = 'daily-class-card';
     card.innerHTML = `
         <div class="daily-class-header">
-            <h3>第${index + 1}天</h3>
+            <h3>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+                第${index + 1}天
+            </h3>
             <button class="delete" onclick="this.closest('.daily-class-card').remove()">删除</button>
         </div>
         <div>
@@ -365,7 +413,7 @@ function addDailyClassCard(day, index) {
                     `;
                 }
             }).join('')}
-            <button onclick="addClassItem(this)">添加课程</button>
+            <button class="btn btn-primary btn-sm" onclick="addClassItem(this)">添加课程</button>
         </div>
     `;
     container.insertBefore(card, container.lastChild);
@@ -463,7 +511,7 @@ function loadDividerDay() {
     const container = document.getElementById('dividerInputs');
     
     if (!day) {
-        container.innerHTML = '<p>请先选择或添加分隔线类型</p>';
+        container.innerHTML = '<div class="empty-state"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg><p>请先选择或添加分隔线类型</p></div>';
         return;
     }
     
@@ -473,19 +521,21 @@ function loadDividerDay() {
     console.log('加载分隔线:', day, dayData);
     
     container.innerHTML = `
-        <div style="margin-bottom: 10px;">
+        <div class="divider-actions">
             <label>类型名称:</label>
             <input type="text" id="dividerDayName" value="${day}" readonly>
-            <button onclick="renameDividerDay()">重命名</button>
-            <button onclick="deleteDividerDay()" style="background: #e74c3c;">删除此类型</button>
+            <button class="btn btn-primary btn-sm" onclick="renameDividerDay()">重命名</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteDividerDay()">删除此类型</button>
         </div>
         <label>分隔线位置（课程序号）:</label>
-        ${dayData.map((num, index) => `
-            <input type="number" value="${num}" class="divider-input" data-index="${index}" style="width: 80px; margin: 5px;">
-        `).join('')}
-        <div style="margin-top: 10px;">
-            <button onclick="addDividerInput(this)">添加分隔线</button>
-            <button onclick="updateDividerFromUI()">保存分隔线</button>
+        <div class="divider-inputs-container">
+            ${dayData.map((num, index) => `
+                <input type="number" value="${num}" class="divider-input" data-index="${index}" style="width: 80px; margin: 5px;">
+            `).join('')}
+        </div>
+        <div class="divider-actions">
+            <button class="btn btn-primary btn-sm" onclick="addDividerInput(this)">添加分隔线</button>
+            <button class="btn btn-success btn-sm" onclick="updateDividerFromUI()">保存分隔线</button>
         </div>
     `;
 }
@@ -512,6 +562,7 @@ function updateDividerFromUI() {
     
     if (!currentConfig.divider) currentConfig.divider = {};
     currentConfig.divider[day] = values;
+    showNotification('分隔线已保存', 'success');
 }
 
 function renameDividerDay() {
@@ -533,7 +584,7 @@ function renameDividerDay() {
         loadDividerTypes();
         document.getElementById('dividerDay').value = trimmedName;
         loadDividerDay();
-        alert('重命名成功！');
+        showNotification('重命名成功！', 'success');
     }
 }
 
@@ -546,8 +597,8 @@ function deleteDividerDay() {
             delete currentConfig.divider[day];
         }
         loadDividerTypes();
-        document.getElementById('dividerInputs').innerHTML = '<p>请先选择或添加分隔线类型</p>';
-        alert('删除成功！');
+        document.getElementById('dividerInputs').innerHTML = '<div class="empty-state"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><line x1="4" y1="12" x2="20" y2="12"></line><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="18" x2="20" y2="18"></line></svg><p>请先选择或添加分隔线类型</p></div>';
+        showNotification('删除成功！', 'success');
     }
 }
 
@@ -566,6 +617,7 @@ function addNewTimetableType() {
         loadTimetableTypes();
         document.getElementById('timetableDay').value = trimmedName;
         loadTimetableDay();
+        showNotification('时间表类型已添加', 'success');
     }
 }
 
@@ -584,21 +636,37 @@ function addNewDividerType() {
         loadDividerTypes();
         document.getElementById('dividerDay').value = trimmedName;
         loadDividerDay();
+        showNotification('分隔线类型已添加', 'success');
     }
 }
 
-// === 样式配置相关 ===
 function loadStyles() {
     const tbody = document.querySelector('#styleTable tbody');
     tbody.innerHTML = '';
     
-    const styles = currentConfig.css_style || {};
-    for (const [key, value] of Object.entries(styles)) {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${key}</td>
-            <td><input type="text" value="${value}" class="style-value" data-key="${key}"></td>
-        `;
-        tbody.appendChild(row);
+    for (const [key, value] of Object.entries(currentConfig.css_style || {})) {
+        addStyleRow(key, value);
     }
+}
+
+function addStyleRow(key = '', value = '') {
+    const tbody = document.querySelector('#styleTable tbody');
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td><input type="text" value="${key}" class="style-key" placeholder="CSS属性"></td>
+        <td><input type="text" value="${value}" class="style-value" placeholder="CSS值"></td>
+    `;
+    tbody.appendChild(row);
+}
+
+function updateStylesFromUI() {
+    const styles = {};
+    document.querySelectorAll('#styleTable tbody tr').forEach(row => {
+        const key = row.querySelector('.style-key').value;
+        const value = row.querySelector('.style-value').value;
+        if (key && value) {
+            styles[key] = value;
+        }
+    });
+    currentConfig.css_style = styles;
 }
