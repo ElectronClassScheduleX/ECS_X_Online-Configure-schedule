@@ -1,172 +1,354 @@
 class ConfigParser {
+    /** 解析 JS 配置文本并返回配置对象。 */
     static parseJS(content) {
-        try {
-            console.log('开始解析配置文件...');
+        const configLiteral = this.extractConfigLiteral(content);
+        const literalWithoutComments = this.stripComments(configLiteral);
+        const normalizedLiteral = this.normalizeLiteral(literalWithoutComments);
+        const parsed = this.evaluateLiteral(normalizedLiteral);
 
-            // 查找配置对象的开始位置
-            const startIndex = content.indexOf('const _scheduleConfig =');
-            if (startIndex === -1) {
-                throw new Error('未找到 const _scheduleConfig =');
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('配置对象格式无效');
+        }
+
+        return parsed;
+    }
+
+    /** 从脚本文本中提取 _scheduleConfig 的对象字面量。 */
+    static extractConfigLiteral(content) {
+        const markers = [
+            'const _scheduleConfig',
+            'let _scheduleConfig',
+            'var _scheduleConfig',
+            'const scheduleConfig',
+            'let scheduleConfig',
+            'var scheduleConfig'
+        ];
+
+        let markerIndex = -1;
+        for (const marker of markers) {
+            markerIndex = content.indexOf(marker);
+            if (markerIndex !== -1) {
+                break;
+            }
+        }
+
+        if (markerIndex === -1) {
+            throw new Error('未找到配置对象声明');
+        }
+
+        const braceStart = content.indexOf('{', markerIndex);
+        if (braceStart === -1) {
+            throw new Error('未找到配置对象起始符号');
+        }
+
+        const braceEnd = this.findMatchingBrace(content, braceStart);
+        return content.slice(braceStart, braceEnd + 1);
+    }
+
+    /** 查找与起始花括号匹配的结束位置，忽略字符串和注释内部括号。 */
+    static findMatchingBrace(text, startIndex) {
+        let depth = 0;
+        let inSingle = false;
+        let inDouble = false;
+        let inTemplate = false;
+        let inLineComment = false;
+        let inBlockComment = false;
+        let escaped = false;
+
+        for (let i = startIndex; i < text.length; i += 1) {
+            const current = text[i];
+            const next = text[i + 1];
+
+            if (inLineComment) {
+                if (current === '\n') {
+                    inLineComment = false;
+                }
+                continue;
             }
 
-            // 从开始位置查找整个对象
-            const objectStart = content.indexOf('{', startIndex);
-            if (objectStart === -1) {
-                throw new Error('未找到配置对象开始 {');
+            if (inBlockComment) {
+                if (current === '*' && next === '/') {
+                    inBlockComment = false;
+                    i += 1;
+                }
+                continue;
             }
 
-            // 使用更可靠的括号匹配算法
-            let braceCount = 1;
-            let endIndex = objectStart + 1;
+            if (inSingle) {
+                if (!escaped && current === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (!escaped && current === '\'') {
+                    inSingle = false;
+                }
+                escaped = false;
+                continue;
+            }
 
-            for (let i = objectStart + 1; i < content.length; i++) {
-                const char = content[i];
-                if (char === '{') {
-                    braceCount++;
-                } else if (char === '}') {
-                    braceCount--;
-                    if (braceCount === 0) {
-                        endIndex = i + 1;
-                        break;
-                    }
+            if (inDouble) {
+                if (!escaped && current === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (!escaped && current === '"') {
+                    inDouble = false;
+                }
+                escaped = false;
+                continue;
+            }
+
+            if (inTemplate) {
+                if (!escaped && current === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (!escaped && current === '`') {
+                    inTemplate = false;
+                }
+                escaped = false;
+                continue;
+            }
+
+            if (current === '/' && next === '/') {
+                inLineComment = true;
+                i += 1;
+                continue;
+            }
+
+            if (current === '/' && next === '*') {
+                inBlockComment = true;
+                i += 1;
+                continue;
+            }
+
+            if (current === '\'') {
+                inSingle = true;
+                continue;
+            }
+
+            if (current === '"') {
+                inDouble = true;
+                continue;
+            }
+
+            if (current === '`') {
+                inTemplate = true;
+                continue;
+            }
+
+            if (current === '{') {
+                depth += 1;
+                continue;
+            }
+
+            if (current === '}') {
+                depth -= 1;
+                if (depth === 0) {
+                    return i;
+                }
+            }
+        }
+
+        throw new Error('配置对象括号不匹配');
+    }
+
+    /** 删除对象字面量中的注释并保留字符串文本。 */
+    static stripComments(literal) {
+        let output = '';
+        let inSingle = false;
+        let inDouble = false;
+        let inTemplate = false;
+        let inLineComment = false;
+        let inBlockComment = false;
+        let escaped = false;
+
+        for (let i = 0; i < literal.length; i += 1) {
+            const current = literal[i];
+            const next = literal[i + 1];
+
+            if (inLineComment) {
+                if (current === '\n') {
+                    inLineComment = false;
+                    output += current;
+                }
+                continue;
+            }
+
+            if (inBlockComment) {
+                if (current === '*' && next === '/') {
+                    inBlockComment = false;
+                    i += 1;
+                }
+                continue;
+            }
+
+            if (!inSingle && !inDouble && !inTemplate) {
+                if (current === '/' && next === '/') {
+                    inLineComment = true;
+                    i += 1;
+                    continue;
+                }
+
+                if (current === '/' && next === '*') {
+                    inBlockComment = true;
+                    i += 1;
+                    continue;
                 }
             }
 
-            if (braceCount !== 0) {
-                throw new Error('配置对象括号不匹配，braceCount=' + braceCount);
+            if (inSingle) {
+                output += current;
+                if (!escaped && current === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (!escaped && current === '\'') {
+                    inSingle = false;
+                }
+                escaped = false;
+                continue;
             }
 
-            // 提取配置对象字符串
-            const configStr = content.substring(objectStart, endIndex);
-            console.log('提取的配置字符串长度:', configStr.length);
+            if (inDouble) {
+                output += current;
+                if (!escaped && current === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (!escaped && current === '"') {
+                    inDouble = false;
+                }
+                escaped = false;
+                continue;
+            }
 
-            // 清理注释
-            const cleanConfigStr = this.removeComments(configStr);
+            if (inTemplate) {
+                output += current;
+                if (!escaped && current === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (!escaped && current === '`') {
+                    inTemplate = false;
+                }
+                escaped = false;
+                continue;
+            }
 
-            // 移除尾部逗号等格式问题
-            const fixedConfigStr = this.fixConfigFormat(cleanConfigStr);
+            if (current === '\'') {
+                inSingle = true;
+                output += current;
+                continue;
+            }
 
-            console.log('清理后的配置字符串:', fixedConfigStr.substring(0, 200));
+            if (current === '"') {
+                inDouble = true;
+                output += current;
+                continue;
+            }
 
-            // 安全解析
-            const result = new Function(`return (${fixedConfigStr})`)();
-            console.log('解析成功');
-            return result;
+            if (current === '`') {
+                inTemplate = true;
+                output += current;
+                continue;
+            }
 
-        } catch (error) {
-            console.error('解析失败:', error);
-            throw new Error('解析失败: ' + error.message);
+            output += current;
         }
+
+        return output;
     }
 
-    static removeComments(str) {
-        // 移除单行注释
-        let result = str.replace(/\/\/.*$/gm, '');
-        // 移除多行注释
-        result = result.replace(/\/\*[\s\S]*?\*\//g, '');
-        return result;
-    }
-
-    static fixConfigFormat(str) {
-        return str
-            // 移除尾部逗号
+    /** 修复对象字面量的常见格式问题。 */
+    static normalizeLiteral(literal) {
+        return literal
+            .replace(/\u00A0/g, ' ')
             .replace(/,\s*([}\]])/g, '$1')
-            // 修复多余的逗号
-            .replace(/,,/g, ',')
             .trim();
     }
 
-    // 判断数组是否应该横向格式化
-    static shouldFormatHorizontal(arr) {
-        // 数组长度<=12且元素都是简单类型时横向排列
-        if (arr.length <= 12) {
-            return arr.every(item => 
-                typeof item === 'string' || 
-                typeof item === 'number' || 
-                typeof item === 'boolean' ||
-                item === null ||
-                (Array.isArray(item) && 
-                 item.length <= 3 && 
-                 item.every(sub => typeof sub === 'string'))
-            );
+    /** 使用受控 Function 执行对象字面量并返回对象。 */
+    static evaluateLiteral(literal) {
+        try {
+            return new Function(`"use strict"; return (${literal});`)();
+        } catch (error) {
+            throw new Error(`配置对象语法错误: ${error.message}`);
         }
-        return false;
     }
 
-    // 格式化配置对象
-    static formatConfig(obj, indent = 0) {
-        const spaces = '    '.repeat(indent);
-        const nextSpaces = '    '.repeat(indent + 1);
-        
-        if (Array.isArray(obj)) {
-            if (obj.length === 0) return '[]';
-            
-            // 检查是否应该横向排列
-            const shouldHorizontal = this.shouldFormatHorizontal(obj);
-            
-            if (shouldHorizontal) {
-                // 横向排列
-                const items = obj.map(item => {
-                    if (item && typeof item === 'object') {
-                        return this.formatConfig(item, 0); // 横向时不需要额外缩进
-                    } else if (typeof item === 'string') {
-                        return `'${item}'`;
-                    } else {
-                        return String(item);
-                    }
-                });
-                return `[${items.join(', ')}]`;
-            } else {
-                // 竖直排列
-                const items = obj.map(item => {
-                    if (item && typeof item === 'object') {
-                        return this.formatConfig(item, indent + 1);
-                    } else if (typeof item === 'string') {
-                        return `'${item}'`;
-                    } else {
-                        return String(item);
-                    }
-                });
-                return `[\n${nextSpaces}${items.join(`,\n${nextSpaces}`)}\n${spaces}]`;
+    /** 判断数组是否适合单行紧凑格式。 */
+    static isCompactArray(arrayValue) {
+        return arrayValue.length <= 8 && arrayValue.every(item => {
+            if (Array.isArray(item)) {
+                return item.length <= 4 && item.every(sub => typeof sub === 'string' || typeof sub === 'number');
             }
-        }
-        
-        if (obj && typeof obj === 'object') {
-            const keys = Object.keys(obj);
-            if (keys.length === 0) return '{}';
-            
-            const items = keys.map(key => {
-                const value = obj[key];
-                // key格式化
-                const formattedKey = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `'${key}'`;
-                // value格式化
-                let formattedValue;
-                if (value && typeof value === 'object') {
-                    formattedValue = this.formatConfig(value, indent + 1);
-                } else if (typeof value === 'string') {
-                    if (value === 'hidden') {
-                        formattedValue = "'hidden'";
-                    } else {
-                        formattedValue = `'${value}'`;
-                    }
-                } else {
-                    formattedValue = String(value);
-                }
-                return `${nextSpaces}${formattedKey}: ${formattedValue}`;
-            });
-            
-            return `{\n${items.join(',\n')}\n${spaces}}`;
-        }
-        
-        return String(obj);
+            return ['string', 'number', 'boolean'].includes(typeof item) || item === null;
+        });
     }
 
-    // 最终推荐的generateJS函数 - 保持格式化
-    static generateJS(config) {
-        const formattedConfig = this.formatConfig(config);
-        
-        return `const _scheduleConfig = ${formattedConfig};
+    /** 将普通字符串转义为单引号字面量。 */
+    static quoteString(value) {
+        return `'${String(value)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/\r/g, '\\r')
+            .replace(/\n/g, '\\n')}'`;
+    }
 
-var scheduleConfig = JSON.parse(JSON.stringify(_scheduleConfig));`;
+    /** 格式化任意值为可读 JS 片段。 */
+    static formatValue(value, indentLevel = 0) {
+        const indent = '    '.repeat(indentLevel);
+        const childIndent = '    '.repeat(indentLevel + 1);
+
+        if (Array.isArray(value)) {
+            if (value.length === 0) {
+                return '[]';
+            }
+
+            if (this.isCompactArray(value)) {
+                const compactItems = value.map(item => this.formatValue(item, 0));
+                return `[${compactItems.join(', ')}]`;
+            }
+
+            const lines = value.map(item => `${childIndent}${this.formatValue(item, indentLevel + 1)}`);
+            return `[\n${lines.join(',\n')}\n${indent}]`;
+        }
+
+        if (value && typeof value === 'object') {
+            const entries = Object.entries(value);
+            if (entries.length === 0) {
+                return '{}';
+            }
+
+            const lines = entries.map(([key, item]) => {
+                const validIdentifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key);
+                const formattedKey = validIdentifier ? key : this.quoteString(key);
+                const formattedValue = this.formatValue(item, indentLevel + 1);
+                return `${childIndent}${formattedKey}: ${formattedValue}`;
+            });
+
+            return `{\n${lines.join(',\n')}\n${indent}}`;
+        }
+
+        if (typeof value === 'string') {
+            return this.quoteString(value);
+        }
+
+        if (typeof value === 'number' || typeof value === 'boolean') {
+            return String(value);
+        }
+
+        if (value === null) {
+            return 'null';
+        }
+
+        return this.quoteString(String(value));
+    }
+
+    /** 生成标准化的 scheduleConfig.js 文本。 */
+    static generateJS(config) {
+        const formattedConfig = this.formatValue(config, 0);
+        return `const _scheduleConfig = ${formattedConfig};\n\nvar scheduleConfig = JSON.parse(JSON.stringify(_scheduleConfig));`;
     }
 }
