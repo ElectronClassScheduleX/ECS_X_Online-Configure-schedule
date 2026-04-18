@@ -1,6 +1,7 @@
 let currentConfig = {};
 let originalConfig = {};
 let sourceStructure = null;
+let isExternalConfigLoaded = false;
 
 const TAB_META = {
     basic: {
@@ -56,6 +57,8 @@ function initializeApp() {
     }
 
     initializeNavigation();
+    initializeSummaryShortcuts();
+    initializeLiveSummarySync();
     resetConfig(false);
 }
 
@@ -74,6 +77,41 @@ function initializeNavigation() {
             activateTab(tabId);
         });
     });
+}
+
+/** 初始化概览卡快捷跳转。 */
+function initializeSummaryShortcuts() {
+    document.querySelectorAll('[data-tab-shortcut]').forEach(card => {
+        card.addEventListener('click', () => {
+            const tabId = card.getAttribute('data-tab-shortcut');
+            activateTab(tabId);
+        });
+    });
+}
+
+/** 初始化展示层的实时概览刷新。 */
+function initializeLiveSummarySync() {
+    document.addEventListener('input', handleLiveSummaryRefresh);
+    document.addEventListener('change', handleLiveSummaryRefresh);
+}
+
+/** 在用户编辑关键区域时刷新概览信息。 */
+function handleLiveSummaryRefresh(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+        return;
+    }
+
+    if (
+        target.closest('#subjectsTable')
+        || target.closest('#timetableTable')
+        || target.closest('#dailyClasses')
+        || target.closest('#styleTable')
+        || target.id === 'countdown_target'
+        || target.id === 'week_display'
+    ) {
+        refreshEditorOverview();
+    }
 }
 
 /** 激活指定选项卡并同步顶部标题。 */
@@ -101,6 +139,89 @@ function updateSectionHint(tabId) {
 
     if (descElement) {
         descElement.textContent = meta.desc;
+    }
+}
+
+/** 刷新侧栏状态与顶部概览数字。 */
+function refreshEditorOverview() {
+    setElementText('summarySubjectsCount', getSubjectCount());
+    setElementText('summaryTimetableCount', getTimetableTypeCount());
+    setElementText('summaryDailyCount', getDailyClassCount());
+    setElementText('summaryStyleCount', getStyleVariableCount());
+    updateConfigStatusBadge();
+    updateConfigSummaryText();
+}
+
+/** 获取当前可见或已加载的科目数量。 */
+function getSubjectCount() {
+    const rows = Array.from(document.querySelectorAll('#subjectsTable tbody tr'));
+    if (rows.length > 0) {
+        return rows.filter(row => {
+            const key = row.querySelector('.subject-key')?.value.trim() || '';
+            const value = row.querySelector('.subject-value')?.value.trim() || '';
+            return Boolean(key && value);
+        }).length;
+    }
+
+    return Object.keys(currentConfig.subject_name || {}).length;
+}
+
+/** 获取当前时间表类型数量。 */
+function getTimetableTypeCount() {
+    return Object.keys(currentConfig.timetable || {}).length;
+}
+
+/** 获取当前每日课表卡片数量。 */
+function getDailyClassCount() {
+    const cards = document.querySelectorAll('.daily-class-card');
+    if (cards.length > 0) {
+        return cards.length;
+    }
+
+    return Array.isArray(currentConfig.daily_class) ? currentConfig.daily_class.length : 0;
+}
+
+/** 获取当前样式变量数量。 */
+function getStyleVariableCount() {
+    const rows = Array.from(document.querySelectorAll('#styleTable tbody tr'));
+    if (rows.length > 0) {
+        return rows.filter(row => {
+            const key = row.querySelector('.style-key')?.value.trim() || '';
+            const value = row.querySelector('.style-value')?.value.trim() || '';
+            return Boolean(key && value);
+        }).length;
+    }
+
+    return Object.keys(currentConfig.css_style || {}).length;
+}
+
+/** 更新配置来源状态标签。 */
+function updateConfigStatusBadge() {
+    const badge = document.getElementById('configSourceBadge');
+    if (!badge) {
+        return;
+    }
+
+    badge.textContent = isExternalConfigLoaded ? '已载入外部配置' : '默认配置';
+    badge.classList.toggle('status-success', isExternalConfigLoaded);
+    badge.classList.toggle('status-neutral', !isExternalConfigLoaded);
+}
+
+/** 更新侧栏中的配置摘要文案。 */
+function updateConfigSummaryText() {
+    const summary = document.getElementById('configSummaryText');
+    if (!summary) {
+        return;
+    }
+
+    summary.textContent = `科目 ${getSubjectCount()} 项 · 时间表 ${getTimetableTypeCount()} 类 · 每日课表 ${getDailyClassCount()} 天 · 样式变量 ${getStyleVariableCount()} 项`;
+}
+
+/** 为指定元素写入纯文本。 */
+function setElementText(id, value) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.textContent = String(value);
     }
 }
 
@@ -313,6 +434,7 @@ function handleFileUpload(event) {
             sourceStructure = detectSourceStructure(parsedConfig);
             currentConfig = normalizeConfig(parsedConfig);
             originalConfig = deepClone(currentConfig);
+            isExternalConfigLoaded = true;
             loadConfigToUI();
             showNotification('配置文件加载成功。', 'success');
         } catch (error) {
@@ -348,6 +470,7 @@ function loadConfigToUI() {
     loadDividerDay();
     loadDailyClasses();
     loadStyles();
+    refreshEditorOverview();
 }
 
 /** 根据源配置结构控制周显示开关可见性。 */
@@ -373,6 +496,7 @@ function resetConfig(showToast = true) {
     sourceStructure = createDefaultSourceStructure();
     currentConfig = createDefaultConfig();
     originalConfig = deepClone(currentConfig);
+    isExternalConfigLoaded = false;
     loadConfigToUI();
     if (showToast) {
         showNotification('配置已重置。', 'warning');
@@ -392,11 +516,16 @@ async function exportConfig() {
         currentConfig = normalizeConfig(currentConfig);
         const exportPayload = buildExportConfig();
         const jsContent = ConfigParser.generateJS(exportPayload);
-        await copyToClipboard(jsContent);
+        const copied = await copyToClipboard(jsContent);
         downloadTextFile('scheduleConfig.js', jsContent);
         originalConfig = deepClone(currentConfig);
 
-        showNotification('配置已导出并复制到剪贴板。', 'success');
+        if (copied) {
+            showNotification('配置已导出并复制到剪贴板。', 'success');
+            return;
+        }
+
+        showNotification('配置已导出，但复制到剪贴板失败。', 'warning');
     } catch (error) {
         showNotification(`导出失败：${error.message}`, 'error');
     }
@@ -433,7 +562,7 @@ function buildExportConfig() {
 async function copyToClipboard(text) {
     if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
-        return;
+        return true;
     }
 
     const textArea = document.createElement('textarea');
@@ -441,8 +570,14 @@ async function copyToClipboard(text) {
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
-    document.execCommand('copy');
-    textArea.remove();
+
+    try {
+        return Boolean(document.execCommand('copy'));
+    } catch (error) {
+        return false;
+    } finally {
+        textArea.remove();
+    }
 }
 
 /** 触发文本文件下载。 */
